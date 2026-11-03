@@ -189,10 +189,12 @@ def hasPipe (l : List Char) : Bool := Id.run do
     prev := if prev == '\\' && c == '\\' then ' ' else c
   return false
 
-/-- A delimiter row's alignments: each cell `-`s with an optional `:` at either end. -/
+/-- A delimiter row's alignments, one cell at least: each cell `-`s with an optional
+`:` at either end. -/
 def delimiter (l : List Char) : Option (List Align) :=
   if !hasPipe l then none else
   let cs := cells l
+  if cs.isEmpty then none else
   let one (c : List Char) : Option Align :=
     let left := c.head? == some ':'
     let right := c.getLast? == some ':' && c.length > 1
