@@ -1,0 +1,30 @@
+== 40
+<d>• <>one$
+<d>• <>two$
+<d>• <>three$
+<>  <d>• <>nested <b>b$
+<>1. first$
+<>10) tenth$
+<>-no space$
+<>1.no space$
+<d>• <>[ ] task$
+== 6
+<d>• <>one$
+<d>• <>two$
+<d>• <>thre$
+<>  e$
+<>  <d>• <>ne$
+<>    st$
+<>    ed$
+<>    <b>b$
+<>1. fir$
+<>   st$
+<>10) te$
+<>    nt$
+<>    h$
+<>-no$
+<>space$
+<>1.no$
+<>space$
+<d>• <>[ ]$
+<>  task$

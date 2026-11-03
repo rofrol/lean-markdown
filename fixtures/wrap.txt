@@ -1,0 +1,131 @@
+== 20
+<>The quick brown fox$
+<>jumps over the lazy$
+<>dog again and again.$
+<>supercalifragilistic$
+<>expialidocious word$
+<>a  b   c$
+<>trailing spaces   $
+<d>• <>a list item that$
+<>  wraps onto the$
+<>  next row here$
+<d>│ <>a quote that wraps$
+<d>│ <>onto the next row$
+<d>│ <>here$
+== 7
+<>The$
+<>quick$
+<>brown$
+<>fox$
+<>jumps$
+<>over$
+<>the$
+<>lazy$
+<>dog$
+<>again$
+<>and$
+<>again.$
+<>superca$
+<>lifragi$
+<>listice$
+<>xpialid$
+<>ocious$
+<>word$
+<>a  b$
+<>c$
+<>trailin$
+<>g$
+<>spaces$
+<d>• <>a$
+<>  list$
+<>  item$
+<>  that$
+<>  wraps$
+<>  onto$
+<>  the$
+<>  next$
+<>  row$
+<>  here$
+<d>│ <>a$
+<d>│ <>quote$
+<d>│ <>that$
+<d>│ <>wraps$
+<d>│ <>onto$
+<d>│ <>the$
+<d>│ <>next$
+<d>│ <>row$
+<d>│ <>here$
+== 3
+<>The$
+<>qui$
+<>ck$
+<>bro$
+<>wn$
+<>fox$
+<>jum$
+<>ps$
+<>ove$
+<>r$
+<>the$
+<>laz$
+<>y$
+<>dog$
+<>aga$
+<>in$
+<>and$
+<>aga$
+<>in.$
+<>sup$
+<>erc$
+<>ali$
+<>fra$
+<>gil$
+<>ist$
+<>ice$
+<>xpi$
+<>ali$
+<>doc$
+<>iou$
+<>s$
+<>wor$
+<>d$
+<>a$
+<>b$
+<>c$
+<>tra$
+<>ili$
+<>ng$
+<>spa$
+<>ces$
+<>a$
+<>lis$
+<>t$
+<>ite$
+<>m$
+<>tha$
+<>t$
+<>wra$
+<>ps$
+<>ont$
+<>o$
+<>the$
+<>nex$
+<>t$
+<>row$
+<>her$
+<>e$
+<>a$
+<>quo$
+<>te$
+<>tha$
+<>t$
+<>wra$
+<>ps$
+<>ont$
+<>o$
+<>the$
+<>nex$
+<>t$
+<>row$
+<>her$
+<>e$

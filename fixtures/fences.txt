@@ -1,0 +1,20 @@
+== 40
+<>before$
+<c>def f(x):$
+<c>    return x  # tab$
+<c>```$
+<c>not closed by backticks$
+<>after$
+<c>unclosed fence runs to the end$
+== 12
+<>before$
+<c>def f(x):$
+<c>    return x$
+<c>  # tab$
+<c>```$
+<c>not closed b$
+<c>y backticks$
+<>after$
+<c>unclosed fen$
+<c>ce runs to t$
+<c>he end$

@@ -1,0 +1,7 @@
+== 40
+<h>Title$
+<h>A <hb>bold<h> heading$
+<h>six$
+<>####### seven$
+<>#nospace$
+$

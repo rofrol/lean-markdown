@@ -1,0 +1,7 @@
+== 40
+<d>│ <>quoted <i>text$
+<d>│ <>no space$
+<d>│ │ <>nested$
+<d>│ • <>item in quote$
+<d>│ <h>heading in quote$
+<d>│ $

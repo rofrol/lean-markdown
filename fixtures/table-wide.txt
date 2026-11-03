@@ -1,0 +1,9 @@
+== 80
+<b>Column one is long<d> │ <b>Column two is longer still<d> │ <b>Three$
+<d>───────────────────┼────────────────────────────┼──────$
+<>some text here    <d> │ <>more text here            <d> │ <>x    $
+== 40
+<>| Column one is long | Column two is lon$
+<>ger still | Three |$
+<>| --- | --- | --- |$
+<>| some text here | more text here | x |$

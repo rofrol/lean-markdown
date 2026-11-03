@@ -1,0 +1,27 @@
+== 40
+<>Some <i>italic<>, <b>bold<>, <bi>both<> and <c>code<>.$
+<>A <b>bold with <bi>italic<b> inside<> here.$
+<>2 * 3 * 4 and *.md stay; ** alone too.$
+<>Escapes: *not italic* and ` and \ and$
+<>\q.$
+<c>a `tick` inside<> and `unclosed$
+<i>a <bi>b<i> c$
+== 12
+<>Some <i>italic<>,$
+<b>bold<>, <bi>both$
+<>and <c>code<>.$
+<>A <b>bold with$
+<bi>italic$
+<b>inside<> here.$
+<>2 * 3 * 4$
+<>and *.md$
+<>stay; **$
+<>alone too.$
+<>Escapes:$
+<>*not italic*$
+<>and ` and \$
+<>and \q.$
+<c>a `tick`$
+<c>inside<> and$
+<>`unclosed$
+<i>a <bi>b<i> c$
