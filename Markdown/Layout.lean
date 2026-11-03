@@ -10,74 +10,8 @@ but the spaces where a line of text is broken (`Markdown.Proofs`).
 
 namespace Markdown
 
-/-- A row of text, and the spaces taken out after it where it was broken. -/
-structure Row where
-  body : List SChar
-  gap : Nat := 0
-  deriving Repr, Inhabited
-
-/-- `cs` put after an open row `row` of `col` columns, a character at a time,
-starting a new row where the next one does not fit: the rows this closes, the row
-left open and its columns. A character always goes on an empty row. -/
-def fill (w : Nat) (row : List SChar) (col : Nat) : List SChar → List (List SChar) × List SChar × Nat
-  | [] => ([], row, col)
-  | c :: cs =>
-    if col + charWidth c.1 ≤ w ∨ col = 0 then fill w (row ++ [c]) (col + charWidth c.1) cs
-    else
-      let (rs, r, k) := fill w [c] (charWidth c.1) cs
-      (row :: rs, r, k)
-
-/-- `cs` broken into rows of at most `w` columns wherever it would pass them, as
-code is. -/
-def hard (w : Nat) (cs : List SChar) : List (List SChar) :=
-  let (rs, r, _) := fill w [] 0 cs
-  rs ++ [r]
-
-/-- A word, or the spaces between words. -/
-inductive Tok where
-  | word (cs : List SChar)
-  | gap (cs : List SChar)
-  deriving Repr, Inhabited
-
-def Tok.chars : Tok → List SChar
-  | .word cs => cs
-  | .gap cs => cs
-
-/-- Text cut into words and the spaces between them. -/
-def toks : List SChar → List Tok
-  | [] => []
-  | c :: cs =>
-    match toks cs with
-    | .word w :: ts => if c.1 = ' ' then .gap [c] :: .word w :: ts else .word (c :: w) :: ts
-    | .gap g :: ts => if c.1 = ' ' then .gap (c :: g) :: ts else .word [c] :: .gap g :: ts
-    | [] => [if c.1 = ' ' then .gap [c] else .word [c]]
-
-/-- The columns of the word that comes next, if one does. -/
-def nextWord : List Tok → Nat
-  | .word cs :: _ => scols cs
-  | _ => 0
-
-/-- Words put after an open row `row` of `col` columns, `w` wide: a word that does
-not fit starts a new row, and the spaces before it are taken out; a word wider than
-a row is broken where it reaches the edge. -/
-def wrapT (w : Nat) (row : List SChar) (col : Nat) : List Tok → List Row
-  | [] => [⟨row, 0⟩]
-  | [.gap sp] => if col + scols sp ≤ w then [⟨row ++ sp, 0⟩] else [⟨row, sp.length⟩]
-  | .word ws :: ts =>
-    if col + scols ws ≤ w then wrapT w (row ++ ws) (col + scols ws) ts
-    else if 0 < col ∧ scols ws ≤ w then ⟨row, 0⟩ :: wrapT w ws (scols ws) ts
-    else
-      let (rs, r, k) := fill w row col ws
-      rs.map (⟨·, 0⟩) ++ wrapT w r k ts
-  | .gap sp :: ts =>
-    if col + scols sp + nextWord ts ≤ w then wrapT w (row ++ sp) (col + scols sp) ts
-    else if col = 0 then
-      let (rs, r, k) := fill w row col sp
-      rs.map (⟨·, 0⟩) ++ wrapT w r k ts
-    else ⟨row, sp.length⟩ :: wrapT w [] 0 ts
-
-/-- Text broken into rows of at most `w` columns, between words where it can be. -/
-def wrap (w : Nat) (cs : List SChar) : List Row := wrapT w [] 0 (toks cs)
+open Tui (charWidth cols)
+open Tui.Words
 
 def dimA : Attrs := { dim := true }
 def boldA : Attrs := { bold := true }

@@ -1,4 +1,3 @@
-import Markdown.Width
 import Markdown.Doc
 import Markdown.Parse
 import Markdown.Layout

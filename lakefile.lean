@@ -3,7 +3,12 @@ open Lake DSL
 
 package «lean-markdown»
 
-/-- The library, `Markdown.*`: pure Lean, no C. -/
+/-- Columns and text broken into rows, counted as rr's viewers count them:
+lean-tui, the user's own library, beside this checkout until it is published and
+pinned by commit. -/
+require «lean-tui» from "../lean-tui"
+
+/-- The library, `Markdown.*`: pure Lean, no C, on lean-tui's pure modules. -/
 @[default_target]
 lean_lib Markdown
 

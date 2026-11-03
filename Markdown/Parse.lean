@@ -9,6 +9,9 @@ subset). What is not Markdown of the subset stays as written.
 
 namespace Markdown
 
+open Tui (charWidth cols)
+open Tui.Words
+
 /-- The text made harmless and even: CR LF becomes LF, a tab four spaces, and every
 other control character (C0 but LF, DEL, C1; ESC too, so no sequence reaches a
 terminal) U+FFFD, the rest of a sequence staying as text. -/

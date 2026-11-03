@@ -1,4 +1,4 @@
-import Markdown.Width
+import Tui.Words
 
 /-!
 # The document
@@ -9,6 +9,9 @@ about (`Markdown.Proofs`).
 -/
 
 namespace Markdown
+
+open Tui (charWidth cols)
+open Tui.Words
 
 /-- How a character is drawn: any of these at once (a bold word in a heading is
 both). A viewer maps them to its colours. -/
@@ -23,8 +26,6 @@ structure Attrs where
 
 /-- A character with its attributes. -/
 abbrev SChar := Char × Attrs
-
-def scols (l : List SChar) : Nat := cols (l.map Prod.fst)
 
 /-- `s` as characters, all with attributes `a`. -/
 def styled (a : Attrs) (s : List Char) : List SChar := s.map (·, a)

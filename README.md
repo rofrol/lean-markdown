@@ -18,8 +18,10 @@ A span is text and its attributes (`heading`, `bold`, `italic`, `code`, `link`,
 For every width `w ≥ 2` and every document (`Markdown/Proofs.lean`):
 
 - `layout_width`: no line is wider than `w` columns, counted by `charWidth`: two for
-  East Asian Width W and F of Unicode 17.0.0, else one (`Markdown/Width.lean`, the
-  count rr's viewers use).
+  East Asian Width W and F of Unicode 17.0.0, else one (lean-tui's `Tui.Width`, the
+  count rr's viewers use). A line of text is broken between words by lean-tui's
+  `Tui.Words.wrap`, and code and a table too wide by `Tui.Words.hard`, whose
+  theorems (`wrap_spec`, `hard_spec`) these build on.
 - `layout_source`: the lines hold the document's text: put back the spaces taken
   out where a line was broken and leave out what the layout added (prefixes,
   padding, a table's separators, a rule), and what is left is the document's text,
@@ -82,5 +84,9 @@ that holds the fix rr waits for, together with rr.
 
     lake build        # the library; also checks every theorem
     lake test         # every fixture at each of its widths
+
+It builds on lean-tui (https://github.com/rofrol/lean-tui), required from the
+checkout beside this one (`../lean-tui`) until lean-tui is published and pinned
+by commit.
 
 MIT, `LICENSE`.

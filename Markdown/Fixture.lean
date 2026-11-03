@@ -11,6 +11,9 @@ attributes' letters in `<…>` (`h` heading, `b` bold, `i` italic, `c` code, `l`
 
 namespace Markdown
 
+open Tui (charWidth cols)
+open Tui.Words
+
 def Attrs.letters (a : Attrs) : String :=
   (if a.heading then "h" else "") ++ (if a.bold then "b" else "") ++
   (if a.italic then "i" else "") ++ (if a.code then "c" else "") ++
