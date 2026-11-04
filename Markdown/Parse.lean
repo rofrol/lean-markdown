@@ -241,32 +241,149 @@ where
       else .text (quote ++ ind) (quote ++ ind) (inline {} body)
     | _ => .text (quote ++ ind) (quote ++ ind) (inline {} body)
 
-/-- The blocks of the text's lines. -/
-partial def blocks : List (List Char) → List Block
-  | [] => []
+/-- What the text's lines start with: a code block (its opening fence line, its
+lines, and the line that closed it, if one did), a table (its first two lines, their
+alignments, and the rows that follow) or one line of its own. A text's blocks
+are its groups' in order, each group laid out on its own, so a text can be cut
+between groups (`parts`). -/
+inductive Group where
+  | code (opener : List Char) (body : List (List Char)) (closer : Option (List Char))
+  | table (header delim : List Char) (aligns : List Align) (rows : List (List Char))
+  | line (l : List Char)
+
+/-- The group the lines `ls` start with, and the lines after it. -/
+def group : List (List Char) → Option (Group × List (List Char))
+  | [] => none
   | l :: ls =>
     match fence (indentOf l).2 with
     | some f =>
       let body := ls.takeWhile (!closes f ·)
-      body.map (fun b => .code (styled { code := true } b)) ++ blocks (ls.drop (body.length + 1))
+      some (.code l body (ls.drop body.length).head?, ls.drop (body.length + 1))
     | none =>
       match ls with
       | next :: more =>
         match (if hasPipe l then delimiter next else none) with
         | some aligns =>
-          let header := cells l
-          if aligns.length == header.length then
-            let body := more.takeWhile fun r => hasPipe r && !(indentOf r).2.isEmpty
-            let t : Table := {
-              header := header.map (inline {})
-              rows := body.map fun r => (cells r).map (inline {})
-              aligns, raw := l :: next :: body }
-            .table t :: blocks (more.drop body.length)
-          else lineBlock [] l :: blocks ls
-        | none => lineBlock [] l :: blocks ls
-      | [] => [lineBlock [] l]
+          if aligns.length == (cells l).length then
+            let rows := more.takeWhile fun r => hasPipe r && !(indentOf r).2.isEmpty
+            some (.table l next aligns rows, more.drop rows.length)
+          else some (.line l, ls)
+        | none => some (.line l, ls)
+      | [] => some (.line l, [])
+
+/-- A group's blocks. -/
+def Group.blocks : Group → List Block
+  | .code _ body _ => body.map fun b => .code (styled { code := true } b)
+  | .table l next aligns rows =>
+    [.table { header := (cells l).map (inline {}), rows := rows.map fun r => (cells r).map (inline {}),
+              aligns, raw := l :: next :: rows }]
+  | .line l => [lineBlock [] l]
+
+/-- The lines a group was written in. -/
+def Group.lines : Group → List (List Char)
+  | .code o body c => o :: body ++ c.toList
+  | .table l next _ rows => l :: next :: rows
+  | .line l => [l]
+
+/-- The blocks of the text's lines. -/
+partial def blocks (ls : List (List Char)) : List Block :=
+  match group ls with
+  | none => []
+  | some (g, rest) => g.blocks ++ blocks rest
 
 /-- A text as a document. -/
 def parse (text : String) : Doc := blocks (lines (sanitize text.toList))
+
+/-- Whether the line of bytes `b[i:j]` is one `group` reads as a line of its own,
+whatever comes before or after it, as it reads an empty line: it holds no pipe, and
+the first of its characters after spaces and tabs is no backtick or tilde, so it
+neither opens nor closes a code block nor belongs to a table. -/
+def plainLine (b : ByteArray) (i j : Nat) : Bool := Id.run do
+  let mut lead := true
+  for k in [i:j] do
+    let x := b[k]!
+    if x == '|'.toUInt8 then return false
+    if lead && x != ' '.toUInt8 && x != '\t'.toUInt8 then
+      if x == '`'.toUInt8 || x == '~'.toUInt8 then return false
+      lead := false
+  return true
+
+/-- The text cut into parts of about `size` bytes that lay out as the whole text
+does, part after part: `render text w` is the parts' `render`s in order at every
+width (checked by `lake test` over every fixture and generated texts). A text of at
+most `size` bytes is its one part. Else each part is whole lines of the text, cut
+after an LF, so making each part harmless (`sanitize`) makes the text's lines; cut
+between the groups `group` reads, and within a code block between its lines, the
+next part opening the block again with its fence line, which draws nothing, the part
+before running to its end, as a code block no line closes does. A part is larger
+than `size` only by one group that is not a code block (a line, a table) or by a
+code block's fence line. Lets a viewer lay out a large text a part at a time. -/
+def parts (text : String) (size : Nat) : List String := Id.run do
+  if text.utf8ByteSize ≤ size then return [text]
+  let b := text.toUTF8
+  -- Where each line starts; the last start is the text's end when it ends in LF.
+  let mut starts : Array Nat := #[0]
+  for k in [0:b.size] do
+    if b[k]! == 10 then starts := starts.push (k + 1)
+  let n := if b[b.size - 1]! == 10 then starts.size - 1 else starts.size
+  let start (k : Nat) : Nat := if k < starts.size then starts[k]! else b.size
+  -- The text's lines as `parse` reads them, each made harmless on its own (an LF
+  -- after a CR makes CR LF one LF), but a plain line, which `group` reads as it
+  -- reads an empty one, as one: only lines that may open, close or be in a code
+  -- block or a table are decoded.
+  let ls : List (List Char) := (List.range n).map fun k =>
+    let i := start k
+    let j := if k + 1 < starts.size then starts[k + 1]! - 1 else b.size
+    if plainLine b i j then [] else
+    let j := if k + 1 < starts.size && j > i && b[j - 1]! == 13 then j - 1 else j
+    sanitize (String.fromUTF8! (b.extract i j)).toList
+  let size' (k : Nat) : Nat := start (k + 1) - start k
+  let mut out : Array String := #[]
+  -- The current part: the fence line it opens with, if any, and its lines `from`
+  -- to `k`, of `bytes`.
+  let mut fence : Option Nat := none
+  let mut from_ := 0
+  let mut bytes := 0
+  let mut k := 0
+  let mut rest := ls
+  -- Each turn takes a group; a text of n lines has at most n groups.
+  for _ in [0:n] do
+    match group rest with
+    | none => break
+    | some (g, r) =>
+      rest := r
+      match g with
+      | .code _ body c =>
+        let o := k
+        if bytes > 0 && bytes + size' o + size' (o + 1) > size then
+          out := out.push (piece b fence from_ k start)
+          fence := none; from_ := k; bytes := 0
+        bytes := bytes + size' o
+        k := k + 1
+        for _ in body do
+          -- A part holds a line of the code at least, after its fence line.
+          if bytes + size' k > size && k > from_ + (if fence.isSome then 0 else 1) then
+            out := out.push (piece b fence from_ k start)
+            fence := some o; from_ := k; bytes := size' o
+          bytes := bytes + size' k
+          k := k + 1
+        if c.isSome then bytes := bytes + size' k; k := k + 1
+      | g =>
+        let m := g.lines.length
+        let gb := start (k + m) - start k
+        if bytes > 0 && bytes + gb > size then
+          out := out.push (piece b fence from_ k start)
+          fence := none; from_ := k; bytes := 0
+        bytes := bytes + gb
+        k := k + m
+  if k > from_ then out := out.push (piece b fence from_ k start)
+  return out.toList
+where
+  /-- The part of lines `from_` to `k` of `b`, after the fence line `fence` opens. -/
+  piece (b : ByteArray) (fence : Option Nat) (from_ k : Nat) (start : Nat → Nat) : String :=
+    let open_ := match fence with
+      | some o => b.extract (start o) (start (o + 1))
+      | none => ByteArray.empty
+    String.fromUTF8! (open_ ++ b.extract (start from_) (start k))
 
 end Markdown

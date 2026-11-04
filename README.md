@@ -9,6 +9,7 @@ are checked against the fixtures here (`fixtures/README.md`).
     Markdown.render text width : List (List Markdown.Span)   -- each line's spans
     Markdown.parse text : Markdown.Doc
     Markdown.layout width doc : List Markdown.Out
+    Markdown.parts text size : List String              -- render part after part
 
 A span is text and its attributes (`heading`, `bold`, `italic`, `code`, `link`,
 `dim`, any of them at once); a viewer maps them to its colours.
@@ -37,6 +38,13 @@ prefix left out at a narrow width is not drawn). That `render`'s spans regroup t
 lines without changing them is not proved.
 
 What the parser keeps of a text is not proved but pinned by the fixtures.
+
+`parts` cuts a large text into parts of about a given size, between the groups
+the parser reads (a line, a table, a code block, which is cut between its lines and
+opened again with its fence), so a viewer can lay it out a part at a time: the
+parts render, one after another, as the whole text does. Not proved either:
+`lake test` checks it for every fixture and for generated texts at several sizes
+and widths. A part is larger than the size only by one line or one table.
 
 ## The subset
 
