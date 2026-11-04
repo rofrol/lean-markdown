@@ -46,6 +46,12 @@ parts render, one after another, as the whole text does. Not proved either:
 `lake test` checks it for every fixture and for generated texts at several sizes
 and widths. A part is larger than the size only by one line or one table.
 
+A line takes time about as its length to lay out, also a line of thousands of
+marks nothing closes, of backtick runs no run closes or of quote bars: no mark
+scans the rest of its line again for each opener. Not proved: `lake test` checks
+that a line of about 100 KB of each such kind renders within ten times as long as a
+line of plain words as long.
+
 ## The subset
 
 The text is first made harmless: CR LF becomes LF, a tab four spaces, and every
@@ -91,7 +97,7 @@ toolchain, so this one is tested on that. It moves to the first stable release
 that holds the fix rr waits for, together with rr.
 
     lake build        # the library; also checks every theorem
-    lake test         # every fixture at each of its widths
+    lake test         # every fixture at each of its widths, parts, long lines
 
 It builds on lean-tui (https://github.com/rofrol/lean-tui), required from the
 checkout beside this one (`../lean-tui`) until lean-tui is published and pinned

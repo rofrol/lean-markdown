@@ -1,0 +1,26 @@
+== 40
+<>a *b *c *d *e$
+<>a *<i>b **c **d$
+<>[a [b [c](d [e$
+<>[a](b [c](d$
+<>x <c>a ``b <>c$
+<>x ``a `` b$
+<d>│ │ │ │ <>deep$
+<d>│ │ │ <>spaced *and **open$
+<d>│ │ $
+<>x <i>a<> *b <b>c<> *d$
+== 12
+<>a *b *c *d$
+<>*e$
+<>a *<i>b **c **d$
+<>[a [b [c](d$
+<>[e$
+<>[a](b [c](d$
+<>x <c>a ``b <>c$
+<>x ``a `` b$
+<d>│ │ │ │ <>deep$
+<d>│ │ │ <>spaced$
+<d>│ │ │ <>*and$
+<d>│ │ │ <>**open$
+<d>│ │ $
+<>x <i>a<> *b <b>c<> *d$

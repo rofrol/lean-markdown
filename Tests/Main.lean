@@ -7,8 +7,11 @@ Every fixture of `DIR` (`fixtures/` by default): `NAME.md` rendered at each widt
 `NAME.txt` names (`== WIDTH` and the lines expected there) must give those lines.
 Then each fixture and some generated texts, cut into parts of several sizes
 (`Markdown.parts`), must render part after part as they do whole at several widths.
-Prints each difference; the exit status is the number of failing sections and
-cuts.
+Then a line of about 100 KB of each kind that once took time growing as the square
+of its length (thousands of unclosed marks, of backtick runs that close nothing, of
+quote bars) must render within ten times as long as a line of plain words as long.
+Prints each difference; the exit status is the number of failing sections, cuts
+and lines.
 `--print` writes what a file renders to, in the fixtures' form, to write one.
 -/
 
@@ -45,6 +48,43 @@ def partTexts : List (String × String) :=
    ("crlf", "a\r\n\tb\r\n```\r\nx\r\n```\r\n| a | b |\r\n| - | - |\r\n| 1 | 2 |\r\n"),
    ("mixed", String.join ((List.range 30).map fun k =>
       s!"## Step {k}\n\n> quote {k}\n- item `c{k}`\n| N | V |\n| --- | ---: |\n| a{k} | {k} |\n\n```\n{k}\n```\n"))]
+
+/-- `piece` repeated to about `size` characters. -/
+def repeatTo (size : Nat) (piece : String) : String :=
+  String.join (List.replicate (size / piece.length + 1) piece)
+
+/-- Long lines of each kind that once took time growing as the square of their
+length: marks no mark closes, backtick runs no run closes (after an escape, and of
+every length up to about 450), quote bars with and without spaces. -/
+def slowLines : List (String × String) :=
+  let size := 100000
+  [("unclosed *", repeatTo size "a *b "), ("unclosed **", repeatTo size "a **b "),
+   ("unclosed [", repeatTo size "[a "), ("links without )", repeatTo size "[a](b "),
+   ("escaped backticks", repeatTo size "\\`` "),
+   ("backtick runs of each length", " ".intercalate ((List.range 446).map fun k => String.ofList (List.replicate (k + 1) '`'))),
+   ("quote bars", repeatTo size ">"), ("spaced quote bars", repeatTo size "> ")]
+
+/-- The nanoseconds `text` took to render at width 80. -/
+def renderNanos (text : String) : IO Nat := do
+  let t0 ← IO.monoNanosNow
+  -- The width read from the clock, and the lines' count used, so that the render is
+  -- neither moved out of the timed span nor left out.
+  let n := (render text (if t0 == 0 then 81 else 80)).length
+  let t1 ← IO.monoNanosNow
+  if n == 0 then IO.println "(no lines)"
+  return t1 - t0
+
+/-- The fewest nanoseconds `plain` and `text` took to render, in three runs of each
+taken in turn, so that both are timed in the same stretch of the machine's load. -/
+def pairNanos (plain text : String) : IO (Nat × Nat) := do
+  let mut p := 0
+  let mut t := 0
+  for k in [0:3] do
+    let x ← renderNanos plain
+    let y ← renderNanos text
+    if k == 0 || x < p then p := x
+    if k == 0 || y < t then t := y
+  return (p, t)
 
 def main (args : List String) : IO UInt32 := do
   if let "--print" :: file :: widths := args then
@@ -99,4 +139,14 @@ def main (args : List String) : IO UInt32 := do
     cutsBad := cutsBad + 1
   IO.println s!"{cuts - cutsBad} of {cuts} cuts render as the whole text"
   bad := bad + cutsBad.toUInt32
-  return bad
+  -- Each slow kind of line within ten times a plain line as long: a line of 100 KB
+  -- that takes time as the square of its length is hundreds of times slower.
+  let plainText := repeatTo 100000 "word "
+  let mut slowBad := 0
+  for (name, text) in slowLines do
+    let (plain, t) ← pairNanos plainText text
+    if t > 10 * plain then
+      IO.println s!"FAIL {name}: {t / 1000000} ms for {text.length} characters, plain words {plain / 1000000} ms"
+      slowBad := slowBad + 1
+  IO.println s!"{slowLines.length - slowBad} of {slowLines.length} long lines render as fast as plain words"
+  return bad + slowBad.toUInt32

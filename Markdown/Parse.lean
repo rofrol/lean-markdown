@@ -53,46 +53,100 @@ def runAt (a : Array Char) (stop : Nat) (c : Char) (i : Nat) : Nat := Id.run do
 /-- The length of the run of `c` that starts `cs`. -/
 def runOf (c : Char) (cs : List Char) : Nat := (cs.takeWhile (· == c)).length
 
-/-- Where a run of exactly `n` backticks starts in `a` from `i` on, before `stop`. -/
-def backticksAt (a : Array Char) (stop n i : Nat) : Option Nat := Id.run do
-  let mut k := i
-  while k < stop do
+/-- What `inlineGo` looks up in a line, found once for the whole line, so that no
+mark scans the rest of its line again for each opener: on a line of thousands of
+unclosed marks that would take time growing as the square of its length.
+
+Every `stop` `inlineGo` is called with is the line's end, or where a span's closing
+mark (`*`, `**`) or a link's `](` stands, so no run of backticks crosses it and
+what holds of a run in the whole line holds of it before `stop`. -/
+structure Line where
+  a : Array Char
+  /-- For each `k` where a backtick stands: where the code span a run from `k` on
+  opens closes, the first whole run of as many backticks after it, as a scan run by
+  run finds it; else, and where no backtick stands, `a.size`. -/
+  tick : Array Nat
+  /-- For each `k` up to `a.size`: where `](` first stands from `k` on, else
+  `a.size`. -/
+  link : Array Nat
+  /-- For each `k` up to `a.size`: where `)` first stands from `k` on, else
+  `a.size`. -/
+  paren : Array Nat
+
+/-- For each `k` up to `a.size`, where `p` first stands in `a` from `k` on, else
+`a.size`. -/
+def nextOf (a : Array Char) (p : List Char) : Array Nat := Id.run do
+  let n := a.size
+  let mut out := Array.replicate (n + 1) n
+  for j in [0:n] do
+    let k := n - 1 - j
+    out := out.set! k (if at_ a n k p then k else out[k + 1]!)
+  return out
+
+/-- The line `a` and what `inlineGo` looks up in it, read from its end: the run of
+backticks from each `k` on and, by length, the first whole run seen so far. -/
+def Line.of (a : Array Char) : Line := Id.run do
+  let n := a.size
+  let mut run := Array.replicate (n + 1) 0
+  let mut first := Array.replicate (n + 1) n
+  let mut tick := Array.replicate n n
+  for j in [0:n] do
+    let k := n - 1 - j
     if a[k]! == '`' then
-      let r := runAt a stop '`' k
-      if r == n then return some k
-      k := k + r
-    else k := k + 1
-  return none
+      let r := run[k + 1]! + 1
+      run := run.set! k r
+      tick := tick.set! k first[r]!
+      if k == 0 || a[k - 1]! != '`' then first := first.set! r k
+  return { a, tick, link := nextOf a [']', '('], paren := nextOf a [')'] }
+
+/-- Where the code span the run of `n` backticks at `i` opens closes, before `stop`. -/
+def Line.codeClose (L : Line) (stop i n : Nat) : Option Nat :=
+  let k := L.tick[i]!
+  if k + n ≤ stop then some k else none
+
+/-- Where `p`, of `len` characters and looked up in `next` (`Line.link` or
+`Line.paren`), first stands from `i` on, before `stop`: where it first stands in the
+whole line, when that is before `stop`, as every later place is after it. -/
+def firstAt (next : Array Nat) (stop i len : Nat) : Option Nat :=
+  let k := next[i]!
+  if k + len ≤ stop then some k else none
 
 /-- Where the mark `m` closes a span whose text starts at `s`, before `stop`: at the
 first `m` after something other than a space (and, for `*`, with no star either
 side), past escapes and code spans, the text not starting with a space. `**` closes
-on the last two of a run of three stars. -/
-def closing (a : Array Char) (stop s : Nat) (m : List Char) : Option Nat := Id.run do
-  if s ≥ stop || a[s]! == ' ' then return none
+on the last two of a run of three stars.
+
+`fail` holds, of each place a scan for `m` reached after its start, `stop + 1` of
+that scan, and is returned with the places this scan reached. Where a scan goes
+next depends on where it is alone, and whether a place closes on that place alone
+but for its start, so a scan that reaches a place an earlier one at the same `stop`
+reached goes the same way from there. That one failed: had it found a closing mark,
+`inlineGo` would have gone on after that mark at that `stop`, where no scan reaches
+what that one reached. So each place is scanned once per mark and `stop`. -/
+def closing (L : Line) (fail : Array Nat) (stop s : Nat) (m : List Char) : Option Nat × Array Nat := Id.run do
+  let a := L.a
+  if s ≥ stop || a[s]! == ' ' then return (none, fail)
+  let mut fail := fail
   let mut i := s
   while i < stop do
+    if s < i then
+      if fail[i]! == stop + 1 then return (none, fail)
+      fail := fail.set! i (stop + 1)
     let c := a[i]!
     if c == '\\' then i := i + 2
     else if c == '`' then
       let n := runAt a stop '`' i
-      match backticksAt a stop n (i + n) with
+      match L.codeClose stop i n with
       | some k => i := k + n
       | none => i := i + n
     else
       if s < i && at_ a stop i m && a[i - 1]! != ' ' then
         if m == ['*'] then
-          if a[i - 1]! != '*' && get a stop (i + 1) != '*' then return some i
-        else if get a stop (i + 2) == '*' then return some (i + 1)
-        else return some i
+          if a[i - 1]! != '*' && get a stop (i + 1) != '*' then return (some i, fail)
+        else if get a stop (i + 2) == '*' then return (some (i + 1), fail)
+        else return (some i, fail)
       i := i + 1
-  return none
-
-/-- Where `p` first stands in `a` from `i` on, before `stop`. -/
-def find (a : Array Char) (stop i : Nat) (p : List Char) : Option Nat := Id.run do
-  for k in [i:stop] do
-    if at_ a stop k p then return some k
-  return none
+  return (none, fail)
 
 /-- `a` from `i` to `j` with attributes `at`. -/
 def pushRange (acc : Array SChar) (a : Array Char) (i j : Nat) (st : Attrs) : Array SChar := Id.run do
@@ -101,46 +155,54 @@ def pushRange (acc : Array SChar) (a : Array Char) (i j : Nat) (st : Attrs) : Ar
   return acc
 
 /-- A line's emphasis, code spans, links and escapes from `i` to `stop`, its marks
-taken out, after `acc`. -/
-partial def inlineGo (a : Array Char) (stop : Nat) (st : Attrs) (i : Nat) (acc : Array SChar) : Array SChar :=
-  if i ≥ stop then acc else
+taken out, after `acc`; `star` and `bold` are `closing`'s `fail` for `*` and `**`,
+returned with the output. -/
+partial def inlineGo (L : Line) (stop : Nat) (st : Attrs) (i : Nat) (acc : Array SChar)
+    (star bold : Array Nat) : Array SChar × Array Nat × Array Nat :=
+  let a := L.a
+  if i ≥ stop then (acc, star, bold) else
   let c := a[i]!
   if c == '\\' && i + 1 < stop && isPunct a[i + 1]! then
-    inlineGo a stop st (i + 2) (acc.push (a[i + 1]!, st))
+    inlineGo L stop st (i + 2) (acc.push (a[i + 1]!, st)) star bold
   else if c == '`' then
     let n := runAt a stop '`' i
-    match backticksAt a stop n (i + n) with
-    | some k => inlineGo a stop st (k + n) (pushRange acc a (i + n) k { st with code := true })
-    | none => inlineGo a stop st (i + n) (pushRange acc a i (i + n) st)
+    match L.codeClose stop i n with
+    | some k => inlineGo L stop st (k + n) (pushRange acc a (i + n) k { st with code := true }) star bold
+    | none => inlineGo L stop st (i + n) (pushRange acc a i (i + n) st) star bold
   else if c == '*' && get a stop (i + 1) == '*' then
-    match closing a stop (i + 2) ['*', '*'] with
-    | some k => inlineGo a stop st (k + 2) (inlineGo a k { st with bold := true } (i + 2) acc)
-    | none => inlineGo a stop st (i + 1) (acc.push ('*', st))
+    match closing L bold stop (i + 2) ['*', '*'] with
+    | (some k, bold) =>
+      let (acc, star, bold) := inlineGo L k { st with bold := true } (i + 2) acc star bold
+      inlineGo L stop st (k + 2) acc star bold
+    | (none, bold) => inlineGo L stop st (i + 1) (acc.push ('*', st)) star bold
   else if c == '*' then
-    match closing a stop (i + 1) ['*'] with
-    | some k => inlineGo a stop st (k + 1) (inlineGo a k { st with italic := true } (i + 1) acc)
-    | none => inlineGo a stop st (i + 1) (acc.push ('*', st))
+    match closing L star stop (i + 1) ['*'] with
+    | (some k, star) =>
+      let (acc, star, bold) := inlineGo L k { st with italic := true } (i + 1) acc star bold
+      inlineGo L stop st (k + 1) acc star bold
+    | (none, star) => inlineGo L stop st (i + 1) (acc.push ('*', st)) star bold
   else if c == '[' then
-    match find a stop (i + 1) [']', '('] with
+    match firstAt L.link stop (i + 1) 2 with
     | some close =>
-      match find a stop (close + 2) [')'] with
+      match firstAt L.paren stop (close + 2) 1 with
       | some e =>
         if i + 2 ≤ close then
-          let acc := inlineGo a close { st with link := true } (i + 1) acc
+          let (acc, star, bold) := inlineGo L close { st with link := true } (i + 1) acc star bold
           let label := a.extract (i + 1) close
           let url := a.extract (close + 2) e
           let acc := if url.isEmpty || url == label then acc
             else pushRange (acc.push (' ', { st with dim := true })) a (close + 2) e { st with dim := true }
-          inlineGo a stop st (e + 1) acc
-        else inlineGo a stop st (i + 1) (acc.push ('[', st))
-      | none => inlineGo a stop st (i + 1) (acc.push ('[', st))
-    | none => inlineGo a stop st (i + 1) (acc.push ('[', st))
-  else inlineGo a stop st (i + 1) (acc.push (c, st))
+          inlineGo L stop st (e + 1) acc star bold
+        else inlineGo L stop st (i + 1) (acc.push ('[', st)) star bold
+      | none => inlineGo L stop st (i + 1) (acc.push ('[', st)) star bold
+    | none => inlineGo L stop st (i + 1) (acc.push ('[', st)) star bold
+  else inlineGo L stop st (i + 1) (acc.push (c, st)) star bold
 
 /-- A line's emphasis, code spans, links and escapes, its marks taken out. -/
 def inline (st : Attrs) (cs : List Char) : List SChar :=
-  let a := cs.toArray
-  (inlineGo a a.size st 0 #[]).toList
+  let L := Line.of cs.toArray
+  let n := L.a.size
+  (inlineGo L n st 0 #[] (Array.replicate n 0) (Array.replicate n 0)).1.toList
 
 /-- The leading spaces of a line, and the rest. -/
 def indentOf (l : List Char) : Nat × List Char :=
@@ -208,9 +270,24 @@ def delimiter (l : List Char) : Option (List Align) :=
 
 def bar : List SChar := styled { dim := true } "│ ".toList
 
+/-- How many quote bars `>` a line starts with, each after spaces and before an
+optional space, and the rest of it, after `d` bars found already; `fuel`, the
+line's length, bounds the bars. A loop, not a call per bar, so that a line of
+thousands of bars takes time as its length. -/
+def quotes : Nat → Nat → List Char → Nat × List Char
+  | 0, d, l => (d, l)
+  | fuel + 1, d, l =>
+    match (indentOf l).2 with
+    | '>' :: rest => quotes fuel (d + 1) (if rest.head? == some ' ' then rest.tail else rest)
+    | _ => (d, l)
+
 /-- One line that is not part of a code block or a table: a blank, a rule, a
-heading, a quote (its rest parsed again under a bar), a list item or text. -/
-partial def lineBlock (quote : List SChar) (l : List Char) : Block :=
+heading, a quote (its rest read as a line under a bar), a list item or text. A
+`>` after spaces always starts a quote, as no blank, rule or heading starts
+with it, so the bars are taken first. -/
+def lineBlock (l : List Char) : Block :=
+  let (d, l) := quotes l.length 0 l
+  let quote := (List.replicate d bar).flatten
   let (n, body) := indentOf l
   let ind := styled {} (List.replicate n ' ')
   if body.isEmpty then .text quote quote []
@@ -220,9 +297,6 @@ partial def lineBlock (quote : List SChar) (l : List Char) : Block :=
     if 1 ≤ h ∧ h ≤ 6 ∧ (body.length = h ∨ body[h]? = some ' ') then
       .text quote quote (inline { heading := true } (body.drop (h + 1)))
     else match body with
-    | '>' :: rest =>
-      let rest := if rest.head? == some ' ' then rest.tail else rest
-      lineBlock (quote ++ bar) rest
     | m :: ' ' :: rest =>
       if m == '-' || m == '*' || m == '+' then
         let marker := styled { dim := true } "• ".toList
@@ -277,7 +351,7 @@ def Group.blocks : Group → List Block
   | .table l next aligns rows =>
     [.table { header := (cells l).map (inline {}), rows := rows.map fun r => (cells r).map (inline {}),
               aligns, raw := l :: next :: rows }]
-  | .line l => [lineBlock [] l]
+  | .line l => [lineBlock l]
 
 /-- The lines a group was written in. -/
 def Group.lines : Group → List (List Char)
