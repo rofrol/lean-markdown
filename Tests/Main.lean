@@ -7,6 +7,8 @@ Every fixture of `DIR` (`fixtures/` by default): `NAME.md` rendered at each widt
 `NAME.txt` names (`== WIDTH` and the lines expected there) must give those lines.
 Then each fixture and some generated texts, cut into parts of several sizes
 (`Markdown.parts`), must render part after part as they do whole at several widths.
+and each of their lines must read, to the grouping of lines, from its bytes
+(`Markdown.shapes`) as from its characters.
 Then a line of about 100 KB of each kind that once took time growing as the square
 of its length (thousands of unclosed marks, of backtick runs that close nothing, of
 quote bars) must render within ten times as long as a line of plain words as long.
@@ -38,16 +40,61 @@ def partsAgree (name text : String) (size w : Nat) : IO Bool := do
   IO.println s!"  parts, line {k}: {cut[k]?}"
   return false
 
+/-- Lines on the edges of what `group` reads: escaped pipes and backslashes, fences
+after spaces and tabs, with text after them and runs broken by a tab, delimiter rows
+with tabs, CR LF, a lone CR and a CR at the text's end, control characters, wide
+characters, and a header with a cell more or fewer than its delimiter row. -/
+def shapeText : String :=
+  "\\|a\n\\\\|b\n\\\\\\|c\n  ```  \n\t~~~x\n``\t`\n ~~~~\t \n| a | b |\r\n|:-:|\t-:|\r\n" ++
+  "| x \\| y |\n|\x01|\n| é | ü |\n|-|-|\n a | b | c\n --- | --- \n| \\| |\n| - |\n" ++
+  "|\r\r\n|-\r|\n| a |\n| : |\n|a|b|\n|:--|--|\n\x1b|\n\n|\n| -- |\n  \t\n| a |\n---\n|x|\r"
+
 /-- Texts that cut in every place a part can: code blocks closed and not, with a
 language, a longer closing fence and fence-like lines inside, tables, quotes,
-lists, CR LF, tabs and blank lines. -/
+lists, CR LF, tabs and blank lines, and the lines of `shapeText`. -/
 def partTexts : List (String × String) :=
   let code := String.join ((List.range 40).map fun k => s!"  line {k} ``` not a close\n")
   [("code", s!"intro\n\n```lean\n{code}````  \nafter **bold**\n"),
    ("open code", s!"~~~\n{code}"),
    ("crlf", "a\r\n\tb\r\n```\r\nx\r\n```\r\n| a | b |\r\n| - | - |\r\n| 1 | 2 |\r\n"),
    ("mixed", String.join ((List.range 30).map fun k =>
-      s!"## Step {k}\n\n> quote {k}\n- item `c{k}`\n| N | V |\n| --- | ---: |\n| a{k} | {k} |\n\n```\n{k}\n```\n"))]
+      s!"## Step {k}\n\n> quote {k}\n- item `c{k}`\n| N | V |\n| --- | ---: |\n| a{k} | {k} |\n\n```\n{k}\n```\n")),
+   ("shape edges", shapeText), ("empty", ""), ("blank lines", "\n\n\n")]
+
+/-- The count of lines of each group `group` reads in `ls`, in order. -/
+def spans [GroupLine α] (ls : List α) : List Nat := Id.run do
+  let mut out := #[]
+  let mut rest := ls
+  for _ in [0:ls.length] do
+    match group rest with
+    | none => break
+    | some (g, r) => out := out.push g.lines.length; rest := r
+  return out.toList
+
+/-- Whether `shapes` reads each line of `text` as `group` reads the line `parse`
+makes of it (`GroupLine`), and the lines group alike; prints the first that
+differs. -/
+def shapesAgree (name text : String) : IO Bool := do
+  let ls := (lines (sanitize text.toList)).toArray
+  let (ss, _) := shapes text.toUTF8
+  if ls.size != ss.size then
+    IO.println s!"FAIL shapes of {name}: {ss.size} shapes of {ls.size} lines"
+    return false
+  for k in [0:ls.size] do
+    let l := ls[k]!
+    let s := ss[k]!
+    let fences := [('`', 3), ('`', 4), ('~', 3), ('~', 5)]
+    let colsRead := k + 1 < ls.size && GroupLine.hasPipe l && (GroupLine.delimiter ls[k + 1]!).isSome
+    unless GroupLine.fence l == GroupLine.fence s && GroupLine.hasPipe l == GroupLine.hasPipe s &&
+        GroupLine.blank l == GroupLine.blank s && GroupLine.delimiter l == GroupLine.delimiter s &&
+        fences.all (fun f => GroupLine.closes f l == GroupLine.closes f s) &&
+        (!colsRead || GroupLine.cols l == GroupLine.cols s) do
+      IO.println s!"FAIL shapes of {name}, line {k}: {repr (String.ofList l)}"
+      return false
+  if spans ls.toList != spans ss.toList then
+    IO.println s!"FAIL shapes of {name}: groups of {spans ss.toList} lines, not {spans ls.toList}"
+    return false
+  return true
 
 /-- `piece` repeated to about `size` characters. -/
 def repeatTo (size : Nat) (piece : String) : String :=
@@ -122,6 +169,10 @@ def main (args : List String) : IO UInt32 := do
   for n in names do texts := texts ++ [(n, ← IO.FS.readFile (dir / n))]
   let mut cuts := 0
   let mut cutsBad := 0
+  -- Every line of each reads from its bytes as from its characters.
+  for (name, text) in texts do
+    cuts := cuts + 1
+    unless ← shapesAgree name text do cutsBad := cutsBad + 1
   for (name, text) in texts do
     for size in [1, 16, 64, 300] do
       for w in [2, 9, 30, 80] do
@@ -137,7 +188,7 @@ def main (args : List String) : IO UInt32 := do
   if (parts long 60).map (·.utf8ByteSize) != List.replicate 10 54 then
     IO.println s!"FAIL parts of long code lines: {(parts long 60).map (·.utf8ByteSize)} bytes"
     cutsBad := cutsBad + 1
-  IO.println s!"{cuts - cutsBad} of {cuts} cuts render as the whole text"
+  IO.println s!"{cuts - cutsBad} of {cuts} cuts render as the whole text, their lines read as from characters"
   bad := bad + cutsBad.toUInt32
   -- Each slow kind of line within ten times a plain line as long: a line of 100 KB
   -- that takes time as the square of its length is hundreds of times slower.

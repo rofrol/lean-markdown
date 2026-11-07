@@ -315,38 +315,61 @@ where
       else .text (quote ++ ind) (quote ++ ind) (inline {} body)
     | _ => .text (quote ++ ind) (quote ++ ind) (inline {} body)
 
+/-- What `group` reads of a line `α`: the fence it opens a code block with, whether it
+closes the code block a fence opened, whether it holds a pipe no backslash escapes,
+whether it is blank after spaces, its alignments as a table's delimiter row, and its
+count of cells. A line of characters (`List Char`) is read by the functions above;
+`parts` reads a text's lines as `Shape`s, found from their bytes, which answer only
+what `group` asks where it asks it: `closes` of a fence `fence` found, `cols` of a
+line with a pipe above a delimiter row. -/
+class GroupLine (α : Type) where
+  fence : α → Option (Char × Nat)
+  closes : Char × Nat → α → Bool
+  hasPipe : α → Bool
+  blank : α → Bool
+  delimiter : α → Option (List Align)
+  cols : α → Nat
+
+instance : GroupLine (List Char) where
+  fence l := Markdown.fence (indentOf l).2
+  closes := Markdown.closes
+  hasPipe := Markdown.hasPipe
+  blank l := (indentOf l).2.isEmpty
+  delimiter := Markdown.delimiter
+  cols l := (cells l).length
+
 /-- What the text's lines start with: a code block (its opening fence line, its
 lines, and the line that closed it, if one did), a table (its first two lines, their
 alignments, and the rows that follow) or one line of its own. A text's blocks
 are its groups' in order, each group laid out on its own, so a text can be cut
 between groups (`parts`). -/
-inductive Group where
-  | code (opener : List Char) (body : List (List Char)) (closer : Option (List Char))
-  | table (header delim : List Char) (aligns : List Align) (rows : List (List Char))
-  | line (l : List Char)
+inductive Group (α : Type) where
+  | code (opener : α) (body : List α) (closer : Option α)
+  | table (header delim : α) (aligns : List Align) (rows : List α)
+  | line (l : α)
 
 /-- The group the lines `ls` start with, and the lines after it. -/
-def group : List (List Char) → Option (Group × List (List Char))
+def group [GroupLine α] : List α → Option (Group α × List α)
   | [] => none
   | l :: ls =>
-    match fence (indentOf l).2 with
+    match GroupLine.fence l with
     | some f =>
-      let body := ls.takeWhile (!closes f ·)
+      let body := ls.takeWhile (!GroupLine.closes f ·)
       some (.code l body (ls.drop body.length).head?, ls.drop (body.length + 1))
     | none =>
       match ls with
       | next :: more =>
-        match (if hasPipe l then delimiter next else none) with
+        match (if GroupLine.hasPipe l then GroupLine.delimiter next else none) with
         | some aligns =>
-          if aligns.length == (cells l).length then
-            let rows := more.takeWhile fun r => hasPipe r && !(indentOf r).2.isEmpty
+          if aligns.length == GroupLine.cols l then
+            let rows := more.takeWhile fun r => GroupLine.hasPipe r && !GroupLine.blank r
             some (.table l next aligns rows, more.drop rows.length)
           else some (.line l, ls)
         | none => some (.line l, ls)
       | [] => some (.line l, [])
 
 /-- A group's blocks. -/
-def Group.blocks : Group → List Block
+def Group.blocks : Group (List Char) → List Block
   | .code _ body _ => body.map fun b => .code (styled { code := true } b)
   | .table l next aligns rows =>
     [.table { header := (cells l).map (inline {}), rows := rows.map fun r => (cells r).map (inline {}),
@@ -354,7 +377,7 @@ def Group.blocks : Group → List Block
   | .line l => [lineBlock l]
 
 /-- The lines a group was written in. -/
-def Group.lines : Group → List (List Char)
+def Group.lines : Group α → List α
   | .code o body c => o :: body ++ c.toList
   | .table l next _ rows => l :: next :: rows
   | .line l => [l]
@@ -368,19 +391,135 @@ partial def blocks (ls : List (List Char)) : List Block :=
 /-- A text as a document. -/
 def parse (text : String) : Doc := blocks (lines (sanitize text.toList))
 
-/-- Whether the line of bytes `b[i:j]` is one `group` reads as a line of its own,
-whatever comes before or after it, as it reads an empty line: it holds no pipe, and
-the first of its characters after spaces and tabs is no backtick or tilde, so it
-neither opens nor closes a code block nor belongs to a table. -/
-def plainLine (b : ByteArray) (i j : Nat) : Bool := Id.run do
-  let mut lead := true
-  for k in [i:j] do
-    let x := b[k]!
-    if x == '|'.toUInt8 then return false
-    if lead && x != ' '.toUInt8 && x != '\t'.toUInt8 then
-      if x == '`'.toUInt8 || x == '~'.toUInt8 then return false
-      lead := false
-  return true
+/-- What `group` reads of a line of a text's bytes (`GroupLine`), found from its bytes
+(`shapes`) without decoding it. -/
+structure Shape where
+  /-- The backtick or tilde the line starts with after spaces, the length of its
+  run, and whether only spaces follow the run. -/
+  mark : Option (Char × Nat × Bool)
+  pipe : Bool
+  blank : Bool
+  /-- Its alignments as a delimiter row. -/
+  delim : Option (List Align)
+  /-- Its count of cells where it holds a pipe and the next line is a delimiter
+  row, the only place `group` reads it; else 0. -/
+  cols : Nat
+  deriving Inhabited
+
+/-- `closes f` is read only of a fence `fence` found, of three marks or more, so a
+line that starts with no mark closes none. -/
+instance : GroupLine Shape where
+  fence s := match s.mark with
+    | some (c, n, _) => if n ≥ 3 then some (c, n) else none
+    | none => none
+  closes f s := match s.mark with
+    | some (c, n, rest) => c == f.1 && n ≥ f.2 && rest
+    | none => false
+  hasPipe s := s.pipe
+  blank s := s.blank
+  delimiter s := s.delim
+  cols s := s.cols
+
+/-- Where the line from `k` of `b` ends, at its LF or the end of `b`, and whether it
+holds a pipe no backslash escapes, as `hasPipe` reads it: `bs` whether the byte before
+`k` is a backslash no backslash escapes. No byte of a character of more than one
+byte, nor a control character's (which `sanitize` makes U+FFFD), is a backslash or a
+pipe, so the bytes read as the characters do. -/
+def lineEnd (b : ByteArray) (k : Nat) (bs pipe : Bool) : Nat × Bool :=
+  if h : k < b.size then
+    let x := b[k]
+    if x == 10 then (k, pipe)
+    else lineEnd b (k + 1) (x == 92 && !bs) (pipe || (x == 124 && !bs))
+  else (k, pipe)
+termination_by b.size - k
+
+/-- The first place from `k` before `j` in `b` that holds no byte of `ok`, else `j`. -/
+def skipWhile (b : ByteArray) (ok : UInt8 → Bool) (k j : Nat) : Nat :=
+  if h : k < j ∧ k < b.size then
+    if ok b[k] then skipWhile b ok (k + 1) j else k
+  else k
+termination_by j - k
+
+def isWs (x : UInt8) : Bool := x == 32 || x == 9
+
+/-- The line `b[i:j]` without the spaces and tabs at either end, as `[p, q)`. -/
+def trimmed (b : ByteArray) (i j : Nat) : Nat × Nat :=
+  let p := skipWhile b isWs i j
+  let rec back (q : Nat) : Nat :=
+    if q > p then if isWs b[q - 1]! then back (q - 1) else q else q
+  termination_by q
+  (p, back j)
+
+/-- The count of cells of the line `b[i:j]` as `cells` splits it: one more than its
+pipes no backslash escapes, less the one it starts with after spaces and the one it
+ends with before them. -/
+def cellCount (b : ByteArray) (i j : Nat) : Nat :=
+  let (p, q) := trimmed b i j
+  -- The pipes from `k` on, and whether the last byte before `q` is one.
+  let rec go (k : Nat) (bs : Bool) (n : Nat) (last : Bool) : Nat × Bool :=
+    if h : k < q ∧ k < b.size then
+      let x := b[k]
+      let pipe := x == 124 && !bs
+      go (k + 1) (x == 92 && !bs) (if pipe then n + 1 else n) (pipe && k + 1 == q)
+    else (n, last)
+  termination_by q - k
+  let (n, last) := go p false 0 false
+  n + (if last then 0 else 1) - (if p < q && b[p]! == 124 then 1 else 0)
+
+/-- The alignments of the line `b[i:j]` as `delimiter` reads it, when it holds
+nothing but spaces, tabs, pipes, colons and dashes, which a delimiter row holds,
+so no backslash escapes a pipe in it; else `none`. -/
+def delimAt (b : ByteArray) (i j : Nat) : Option (List Align) := Id.run do
+  let (p, q) := trimmed b i j
+  -- The cells between pipes; the first is dropped where the line starts with a
+  -- pipe, the last where it ends with one.
+  let mut out : Array Align := #[]
+  let mut c := if p < q && b[p]! == 124 then p + 1 else p
+  for _ in [0:q - p + 1] do
+    if c ≥ q then break
+    let e := skipWhile b (· != 124) c q
+    let (s, t) := trimmed b c e
+    let left := s < t && b[s]! == 58
+    let right := t > s + 1 && b[t - 1]! == 58
+    let ms := if left then s + 1 else s
+    let mt := if right then t - 1 else t
+    if ms ≥ mt || skipWhile b (· == 45) ms mt != mt then return none
+    out := out.push (if left && right then .center else if right then .right else .left)
+    c := e + 1
+  if out.isEmpty then return none
+  return some out.toList
+
+/-- The shape of each of the text's lines `b`, as `group` reads the line `parse`
+makes of it, and where each line starts, the text's end last when it ends in LF:
+one pass over the bytes, a tab and a space being alike to `group` (`sanitize` makes
+a tab spaces) and a CR before an LF no part of its line (`sanitize` makes CR LF an
+LF). A line is read as a delimiter row only when it holds a pipe and nothing but
+spaces, tabs, pipes, colons and dashes (a delimiter row holds nothing else), and
+the line above one for its count of cells. -/
+def shapes (b : ByteArray) : Array Shape × Array Nat := Id.run do
+  let mut out : Array Shape := #[]
+  let mut starts : Array Nat := #[0]
+  let mut i := 0
+  -- Each turn reads a line; a text of n bytes has at most n lines.
+  for _ in [0:b.size] do
+    if i ≥ b.size then break
+    let (e, pipe) := lineEnd b i false false
+    let j := if e < b.size && e > i && b[e - 1]! == 13 then e - 1 else e
+    let p := skipWhile b isWs i j
+    let mark := if p < j && (b[p]! == 96 || b[p]! == 126) then
+        let q := skipWhile b (· == b[p]!) p j
+        some (Char.ofNat b[p]!.toNat, q - p, skipWhile b isWs q j == j)
+      else none
+    let delim := if pipe && skipWhile b (fun x => isWs x || x == 124 || x == 58 || x == 45) i j == j
+      then delimAt b i j else none
+    out := out.push { mark, pipe, blank := p == j, delim, cols := 0 }
+    if delim.isSome && out.size ≥ 2 && out[out.size - 2]!.pipe then
+      let o := starts[starts.size - 2]!
+      let oj := if i - 1 > o && b[i - 2]! == 13 then i - 2 else i - 1
+      out := out.modify (out.size - 2) ({ · with cols := cellCount b o oj })
+    if e < b.size then starts := starts.push (e + 1)
+    i := e + 1
+  return (out, starts)
 
 /-- The text cut into parts of about `size` bytes that lay out as the whole text
 does, part after part: `render text w` is the parts' `render`s in order at every
@@ -395,22 +534,10 @@ code block's fence line. Lets a viewer lay out a large text a part at a time. -/
 def parts (text : String) (size : Nat) : List String := Id.run do
   if text.utf8ByteSize ≤ size then return [text]
   let b := text.toUTF8
-  -- Where each line starts; the last start is the text's end when it ends in LF.
-  let mut starts : Array Nat := #[0]
-  for k in [0:b.size] do
-    if b[k]! == 10 then starts := starts.push (k + 1)
-  let n := if b[b.size - 1]! == 10 then starts.size - 1 else starts.size
+  -- The text's lines as `group` reads them, and where each starts.
+  let (ls, starts) := shapes b
+  let n := ls.size
   let start (k : Nat) : Nat := if k < starts.size then starts[k]! else b.size
-  -- The text's lines as `parse` reads them, each made harmless on its own (an LF
-  -- after a CR makes CR LF one LF), but a plain line, which `group` reads as it
-  -- reads an empty one, as one: only lines that may open, close or be in a code
-  -- block or a table are decoded.
-  let ls : List (List Char) := (List.range n).map fun k =>
-    let i := start k
-    let j := if k + 1 < starts.size then starts[k + 1]! - 1 else b.size
-    if plainLine b i j then [] else
-    let j := if k + 1 < starts.size && j > i && b[j - 1]! == 13 then j - 1 else j
-    sanitize (String.fromUTF8! (b.extract i j)).toList
   let size' (k : Nat) : Nat := start (k + 1) - start k
   let mut out : Array String := #[]
   -- The current part: the fence line it opens with, if any, and its lines `from`
@@ -419,7 +546,7 @@ def parts (text : String) (size : Nat) : List String := Id.run do
   let mut from_ := 0
   let mut bytes := 0
   let mut k := 0
-  let mut rest := ls
+  let mut rest := ls.toList
   -- Each turn takes a group; a text of n lines has at most n groups.
   for _ in [0:n] do
     match group rest with
@@ -430,14 +557,14 @@ def parts (text : String) (size : Nat) : List String := Id.run do
       | .code _ body c =>
         let o := k
         if bytes > 0 && bytes + size' o + size' (o + 1) > size then
-          out := out.push (piece b fence from_ k start)
+          out := out.push (piece text fence from_ k start)
           fence := none; from_ := k; bytes := 0
         bytes := bytes + size' o
         k := k + 1
         for _ in body do
           -- A part holds a line of the code at least, after its fence line.
           if bytes + size' k > size && k > from_ + (if fence.isSome then 0 else 1) then
-            out := out.push (piece b fence from_ k start)
+            out := out.push (piece text fence from_ k start)
             fence := some o; from_ := k; bytes := size' o
           bytes := bytes + size' k
           k := k + 1
@@ -446,18 +573,20 @@ def parts (text : String) (size : Nat) : List String := Id.run do
         let m := g.lines.length
         let gb := start (k + m) - start k
         if bytes > 0 && bytes + gb > size then
-          out := out.push (piece b fence from_ k start)
+          out := out.push (piece text fence from_ k start)
           fence := none; from_ := k; bytes := 0
         bytes := bytes + gb
         k := k + m
-  if k > from_ then out := out.push (piece b fence from_ k start)
+  if k > from_ then out := out.push (piece text fence from_ k start)
   return out.toList
 where
-  /-- The part of lines `from_` to `k` of `b`, after the fence line `fence` opens. -/
-  piece (b : ByteArray) (fence : Option Nat) (from_ k : Nat) (start : Nat → Nat) : String :=
-    let open_ := match fence with
-      | some o => b.extract (start o) (start (o + 1))
-      | none => ByteArray.empty
-    String.fromUTF8! (open_ ++ b.extract (start from_) (start k))
+  /-- The part of lines `from_` to `k` of `text`, after the fence line `fence` opens:
+  copied by byte offsets, each the text's start or end or after an LF, so on a
+  character's boundary. -/
+  piece (text : String) (fence : Option Nat) (from_ k : Nat) (start : Nat → Nat) : String :=
+    let cut (i j : Nat) := String.Pos.Raw.extract text ⟨i⟩ ⟨j⟩
+    match fence with
+    | some o => cut (start o) (start (o + 1)) ++ cut (start from_) (start k)
+    | none => cut (start from_) (start k)
 
 end Markdown

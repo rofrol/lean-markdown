@@ -45,6 +45,9 @@ opened again with its fence), so a viewer can lay it out a part at a time: the
 parts render, one after another, as the whole text does. Not proved either:
 `lake test` checks it for every fixture and for generated texts at several sizes
 and widths. A part is larger than the size only by one line or one table.
+It reads what the grouping needs of each line from the line's bytes
+(`shapes`), decoding none; `lake test` checks that every line of those texts
+reads so as its characters do, and that the lines group alike.
 
 A line takes time about as its length to lay out, also a line of thousands of
 marks nothing closes, of backtick runs no run closes or of quote bars: no mark
